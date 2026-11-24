@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inscription aux cours</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    li { margin: .4rem 0; }
+    input { margin-right: .4rem; }
+    .pending { color: #b8860b; } .confirmed { color: #2e7d32; } .refused { color: #c62828; }
+    #msg { color: #c62828; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>Inscription aux cours</h1>
+  <p id="msg"></p>
+
+  <section id="loginBox">
+    <h2>Connexion</h2>
+    <input id="email" type="email" placeholder="e-mail" value="etudiant1@test.com">
+    <input id="password" type="password" placeholder="mot de passe" value="Test1234!">
+    <button id="login">Se connecter</button>
+  </section>
+
+  <div id="app" hidden>
+    <p>Connecté : <strong id="who"></strong> <button id="logout">Se déconnecter</button></p>
+
+    <section>
+      <h2>Cours disponibles</h2>
+      <ul id="courses"></ul>
+    </section>
+
+    <section>
+      <h2>Mes inscriptions</h2>
+      <ul id="enrollments"></ul>
+    </section>
+
+    <section>
+      <h2>Test des règles de sécurité</h2>
+      <button id="badOwner">Inscrire un autre étudiant</button>
+      <button id="badStatus">S'inscrire avec status « confirmed »</button>
+      <p><small>Les deux doivent être refusés (permission-denied).</small></p>
+    </section>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import { getFirestore, connectFirestoreEmulator, collection, doc, setDoc, addDoc, onSnapshot,
+             query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    // En local, seul projectId compte : pas de vraie configuration nécessaire.
+    const app = initializeApp({
+      apiKey: "demo-key",
+      authDomain: "tp-inscription-cours.firebaseapp.com",
+      projectId: "tp-inscription-cours"
+    });
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    connectFirestoreEmulator(db, "127.0.0.1", 8080);
+
+    const $ = (id) => document.getElementById(id);
+    let courses = {};        // id -> données du cours
+    let enrollments = [];    // mes inscriptions
+    let unsubCourses, unsubEnrollments;
+
+    function showMsg(text) { $("msg").textContent = text || ""; }
+    function showError(e) { showMsg(`${e.code || "erreur"} : ${e.message}`); }
+
+    function renderCourses() {
+      const ul = $("courses");
+      ul.replaceChildren();
+      for (const [id, c] of Object.entries(courses)) {
+        const li = document.createElement("li");
+        li.append(`${c.titre} (${c.inscrits}/${c.capacite} places) `);
+        const btn = document.createElement("button");
+        btn.textContent = "S'inscrire";
+        const already = enrollments.some(e => e.courseId === id && e.status !== "refused");
+        btn.disabled = already;
+        btn.onclick = () => enroll(id);
+        li.append(btn);
+        ul.append(li);
+      }
+    }
+
+    function renderEnrollments() {
+      const ul = $("enrollments");
+      ul.replaceChildren();
+      const sorted = [...enrollments].sort(
+        (a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
+      for (const e of sorted) {
+        const li = document.createElement("li");
+        const status = document.createElement("strong");
+        status.className = e.status;
+        status.textContent = e.status;
+        li.append(`${courses[e.courseId]?.titre ?? e.courseId} : `, status);
+        ul.append(li);
+      }
+      if (!sorted.length) ul.textContent = "Aucune inscription.";
+    }
+
+    async function enroll(courseId, overrides = {}) {
+      return addDoc(collection(db, "enrollments"), {
+        studentId: auth.currentUser.uid,
+        courseId,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        ...overrides
+      });
+    }
+
+    async function testBad(overrides) {
+      const courseId = Object.keys(courses)[0];
+      try {
+        await enroll(courseId, overrides);
+        showMsg("ATTENTION : écriture acceptée, les règles sont trop ouvertes !");
+      } catch (e) {
+        showMsg(`Refusé comme prévu (${e.code}).`);
+      }
+    }
+
+    $("login").onclick = async () => {
+      try {
+        showMsg();
+        await signInWithEmailAndPassword(auth, $("email").value, $("password").value);
+      } catch (e) { showError(e); }
+    };
+    $("logout").onclick = () => signOut(auth);
+    $("badOwner").onclick = () => testBad({ studentId: "uid-d-un-autre" });
+    $("badStatus").onclick = () => testBad({ status: "confirmed" });
+
+    onAuthStateChanged(auth, (user) => {
+      unsubCourses?.(); unsubEnrollments?.();
+      courses = {}; enrollments = [];
+      $("loginBox").hidden = !!user;
+      $("app").hidden = !user;
+      if (!user) return;
+
+      $("who").textContent = user.email;
+      setDoc(doc(db, "students", user.uid),
+             { nom: user.email.split("@")[0], email: user.email }, { merge: true }).catch(showError);
+
+      unsubCourses = onSnapshot(collection(db, "courses"), (snap) => {
+        courses = {};
+        snap.forEach(d => { courses[d.id] = d.data(); });
+        renderCourses(); renderEnrollments();
+      }, showError);
+
+      unsubEnrollments = onSnapshot(
+        query(collection(db, "enrollments"), where("studentId", "==", user.uid)),
+        (snap) => {
+          enrollments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          renderCourses(); renderEnrollments();
+        }, showError);
+    });
+  </script>
+</body>
+</html>
