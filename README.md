@@ -28,4 +28,4 @@ Tout tourne en local avec l'émulateur Firebase (plan Spark, sans carte bancaire
 Inscription créée (`pending`) → événement Firestore → fonction `onEnrollmentCreated`
 → vérifie la capacité → `confirmed` ou `refused` → trace de l'e-mail dans les logs.
 
-Aucune clé secrète dans ce dépôt.
+
