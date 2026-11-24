@@ -1,28 +1,31 @@
-\# TP Inscription aux cours (Firebase, BaaS + FaaS)
+# TP Inscription aux cours (Firebase, BaaS + FaaS)
 
-
-
-Application d'inscription aux cours : Firebase Auth + Firestore (BaaS),
-
-Cloud Function déclenchée à la création d'une inscription (FaaS).
+Application d'inscription aux cours :
+- Firebase Auth + Firestore (BaaS)
+- Cloud Function déclenchée à la création d'une inscription (FaaS)
 
 Tout tourne en local avec l'émulateur Firebase (plan Spark, sans carte bancaire).
 
+## Lancer
 
+1. Installer les dépendances :
+   ```
+   cd functions
+   npm install
+   cd ..
+   ```
+2. Démarrer les émulateurs :
+   ```
+   firebase emulators:start
+   ```
+3. Créer 2 utilisateurs dans http://127.0.0.1:4000/auth et une collection `courses`
+   dans http://127.0.0.1:4000/firestore (champs : `titre` string, `capacite` number,
+   `inscrits` number).
+4. Ouvrir http://127.0.0.1:5000
 
-\## Lancer
+## Fonctionnement
 
-1\. `cd functions \&\& npm install \&\& cd ..`
-
-2\. `firebase emulators:start`
-
-3\. Créer 2 utilisateurs dans http://127.0.0.1:4000/auth et des cours dans
-
-&#x20;  `courses` (champs : titre, capacite, inscrits).
-
-4\. Ouvrir http://127.0.0.1:5000
-
-
+Inscription créée (`pending`) → événement Firestore → fonction `onEnrollmentCreated`
+→ vérifie la capacité → `confirmed` ou `refused` → trace de l'e-mail dans les logs.
 
 Aucune clé secrète dans ce dépôt.
-
